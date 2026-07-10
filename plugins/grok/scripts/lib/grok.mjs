@@ -5,8 +5,17 @@ import { spawn } from "node:child_process";
 
 import { binaryAvailable, runCommand } from "./process.mjs";
 
-// Keep allowlists conservative. Some broader allowlists / Agent denylists
-// trip a Grok CLI agent-build bug around run_terminal_cmd (0.2.93).
+// Grok CLI 0.2.93: --tools ALLOWLISTS often fail session create with a
+// server-side run_terminal_cmd background-param constraint error. Prefer
+// the default toolset + --disallowed-tools denylist instead.
+// Also avoid --yolo for media: the permission classifier may deny that flag;
+// single-prompt mode already auto-approves tools when the user config allows.
+export const READ_ONLY_DISALLOWED_TOOLS =
+  "run_terminal_cmd,search_replace,write_file,edit_file";
+export const MEDIA_DISALLOWED_TOOLS =
+  "run_terminal_cmd,write_file,edit_file,search_replace";
+
+// Deprecated: kept only for tests / callers that still pass tools= explicitly.
 export const READ_ONLY_TOOLS = "read_file,grep,list_dir";
 export const MEDIA_TOOLS = "image_gen,image_edit,image_to_video,reference_to_video,list_dir,read_file";
 
@@ -137,23 +146,35 @@ export function buildGrokArgs(options = {}) {
     args.push("--worktree-ref", options.worktreeRef);
   }
 
-  if (options.tools) {
+  // Tool gating strategy (Grok 0.2.93-safe):
+  // - Prefer --disallowed-tools (denylist) over --tools (allowlist).
+  // - Only pass --tools when forceToolsAllowlist is true (debug / future CLI).
+  if (options.forceToolsAllowlist && options.tools) {
     args.push("--tools", options.tools);
-    if (options.yolo !== false && options.write !== false) {
-      // Media and constrained modes still need auto-approve when tools mutate.
-      if (options.yolo || options.write) {
-        args.push("--yolo");
-      }
-    }
+  }
+
+  if (options.disallowedTools) {
+    args.push("--disallowed-tools", options.disallowedTools);
+  } else if (options.media) {
+    args.push("--disallowed-tools", options.mediaDisallowedTools ?? MEDIA_DISALLOWED_TOOLS);
   } else if (options.write) {
-    args.push("--yolo");
+    // Full coding agent: default toolset + auto-approve.
+    if (options.yolo !== false) {
+      args.push("--yolo");
+    }
   } else {
-    args.push("--tools", options.readOnlyTools ?? READ_ONLY_TOOLS);
+    // Read-only review / diagnosis: strip shell + source editors.
+    args.push(
+      "--disallowed-tools",
+      options.readOnlyDisallowedTools ?? READ_ONLY_DISALLOWED_TOOLS
+    );
   }
 
   if (options.rules) {
     args.push("--rules", options.rules);
-  } else if (!options.write && !options.tools) {
+  } else if (options.media) {
+    // Rules supplied by the media command (output dir, no source edits).
+  } else if (!options.write) {
     args.push(
       "--rules",
       "Read-only mode: do not modify files, create files, or run mutating shell commands. Review and report only."

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+### Fixed
+- `/grok:image` and `/grok:video` no longer pass `--tools` allowlists (Grok CLI 0.2.93 fails session create with a `run_terminal_cmd` background-param constraint when allowlists are used). Media mode now uses the default toolset plus `--disallowed-tools run_terminal_cmd,write_file,edit_file,search_replace`, without `--yolo`.
+- Read-only review mode also switched from `--tools` allowlist to a denylist for the same CLI bug class.
+
 ## 0.2.0
 
 ### Added

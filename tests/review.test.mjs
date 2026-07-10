@@ -53,15 +53,14 @@ test("buildGrokArgs supports best-of-n check worktree schema", () => {
   assert.ok(args.includes("--yolo"));
 });
 
-test("buildGrokArgs media tools include yolo", () => {
+test("buildGrokArgs media mode uses denylist without yolo", () => {
   const args = buildGrokArgs({
     prompt: "draw",
-    tools: "image_gen,image_edit",
-    write: true,
-    yolo: true
+    media: true
   });
-  assert.ok(args.includes("--tools"));
-  assert.ok(args.includes("--yolo"));
+  assert.ok(!args.includes("--tools"));
+  assert.ok(!args.includes("--yolo"));
+  assert.ok(args.includes("--disallowed-tools"));
 });
 
 test("extractArtifactPaths finds backtick paths", () => {

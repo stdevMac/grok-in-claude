@@ -135,12 +135,12 @@ export function renderTaskResult(payload) {
     lines.push(`- **Grok session**: \`${payload.grokSessionId}\``);
     lines.push(`- **Resume in Grok TUI**: \`grok --resume ${payload.grokSessionId}\``);
   }
-  if (payload.write) {
+  if (payload.kind === "image" || payload.kind === "video") {
+    lines.push("- **Mode**: media generation (default tools + denylist; no --tools allowlist)");
+  } else if (payload.write) {
     lines.push("- **Mode**: write-capable (`--yolo`)");
-  } else if (payload.kind === "image" || payload.kind === "video") {
-    lines.push("- **Mode**: media generation");
   } else {
-    lines.push("- **Mode**: read-only");
+    lines.push("- **Mode**: read-only (denylist)");
   }
   if (payload.artifacts?.length) {
     lines.push("");

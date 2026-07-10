@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "Grok plugins for Claude Code — delegate tasks, reviews, and media generation to the Grok CLI.",
-    "version": "0.2.0"
+    "version": "0.2.1"
   },
   "plugins": [
     {
       "name": "grok",
       "description": "Use Grok from Claude Code to review code, delegate tasks, and generate images/videos.",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "author": {
         "name": "stdevMac"
       },

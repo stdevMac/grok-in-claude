@@ -120,6 +120,8 @@ Reviews are read-only and return structured findings when possible:
 
 Artifacts default to `.grok-media/` (gitignored). See the **grok-brand-media** skill for recipes.
 
+**CLI note (Grok 0.2.93):** media runs use the default toolset with a denylist (`--disallowed-tools`), not a `--tools` allowlist. Allowlists currently break session create on this CLI version.
+
 ### Job control
 
 ```text

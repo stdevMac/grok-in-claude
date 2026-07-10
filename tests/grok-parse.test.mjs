@@ -30,10 +30,24 @@ test("buildGrokArgs write mode uses yolo", () => {
   assert.ok(args.includes("grok-4.5"));
 });
 
-test("buildGrokArgs read-only mode restricts tools", () => {
+test("buildGrokArgs read-only mode uses denylist not allowlist", () => {
   const args = buildGrokArgs({ prompt: "review", write: false });
   assert.ok(!args.includes("--yolo"));
-  assert.ok(args.includes("--tools"));
-  assert.ok(args.includes("read_file,grep,list_dir"));
+  assert.ok(!args.includes("--tools"));
+  assert.ok(args.includes("--disallowed-tools"));
+  assert.ok(args.some((a) => String(a).includes("run_terminal_cmd")));
   assert.ok(args.includes("--rules"));
+});
+
+test("buildGrokArgs media mode avoids tools allowlist and yolo", () => {
+  const args = buildGrokArgs({
+    prompt: "draw a banner",
+    media: true,
+    write: false,
+    yolo: false
+  });
+  assert.ok(!args.includes("--tools"));
+  assert.ok(!args.includes("--yolo"));
+  assert.ok(args.includes("--disallowed-tools"));
+  assert.ok(args.some((a) => String(a).includes("run_terminal_cmd")));
 });

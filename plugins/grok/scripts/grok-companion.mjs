@@ -11,7 +11,6 @@ import { collectStopGateContext, resolveReviewTarget } from "./lib/git.mjs";
 import {
   getGrokAuthStatus,
   getGrokAvailability,
-  MEDIA_TOOLS,
   parseGrokJsonOutput,
   runGrok,
   spawnGrokBackground
@@ -663,22 +662,25 @@ async function commandMedia(argv, kind) {
     kind,
     title: titleFromPrompt(promptText || `${kind} generation`, `Grok ${kind}`),
     prompt,
-    write: true,
+    write: false,
     model,
     effort,
-    extras: { mediaDir: outputDir }
+    extras: { mediaDir: outputDir, media: true }
   });
 
   const startedMs = Date.now();
+  // Grok 0.2.93: never pass --tools allowlist here (session create fails).
+  // Use default toolset + denylist; do not pass --yolo (classifier may deny it;
+  // single-prompt auto-approve still applies when configured).
   const grokOptions = {
     promptFile: job.promptFile,
     cwd,
-    write: true,
-    yolo: true,
-    tools: MEDIA_TOOLS,
+    media: true,
+    write: false,
+    yolo: false,
     model,
     effort,
-    rules: `Media-only mode. Save files under ${outputDir}. Do not edit source code.`
+    rules: `Media-only mode. Prefer image_gen / image_edit / image_to_video / reference_to_video. Save all outputs under ${outputDir}. Do not edit application source code. Do not run shell commands. When finished, print absolute paths to every created file.`
   };
 
   const finished = runOrBackground(cwd, job, grokOptions, {
@@ -698,7 +700,7 @@ async function commandMedia(argv, kind) {
           kind,
           status: done.status,
           model,
-          write: true,
+          write: false,
           grokSessionId: done.grokSessionId,
           text: done.resultText,
           error: done.error,
