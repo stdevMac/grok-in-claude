@@ -1,10 +1,11 @@
 {
   "name": "grok-in-claude",
   "owner": {
-    "name": "xAI community"
+    "name": "stdevMac",
+    "url": "https://github.com/stdevMac"
   },
   "metadata": {
-    "description": "Grok plugins for Claude Code — delegate tasks and reviews to the local Grok CLI.",
+    "description": "Grok plugins for Claude Code — delegate tasks and reviews to the Grok CLI.",
     "version": "0.1.0"
   },
   "plugins": [
@@ -13,9 +14,10 @@
       "description": "Use Grok from Claude Code to review code or delegate tasks.",
       "version": "0.1.0",
       "author": {
-        "name": "xAI community"
+        "name": "stdevMac"
       },
-      "source": "./plugins/grok"
+      "source": "./plugins/grok",
+      "homepage": "https://github.com/stdevMac/grok-in-claude"
     }
   ]
 }

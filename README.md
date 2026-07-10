@@ -1,6 +1,6 @@
 # Grok plugin for Claude Code
 
-Use [Grok](https://grok.com) from inside Claude Code for code reviews or to delegate tasks to the local Grok CLI.
+Use [Grok](https://grok.com) from inside Claude Code for code reviews or to delegate tasks to the Grok CLI.
 
 This plugin follows the same idea as [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc): Claude stays the orchestrator, and a thin companion script hands real work to another coding agent on your machine.
 
@@ -11,7 +11,7 @@ This plugin follows the same idea as [openai/codex-plugin-cc](https://github.com
 | `/grok:setup` | Check that the Grok CLI is installed and authenticated |
 | `/grok:rescue` | Delegate investigation / fixes to Grok (write-capable) |
 | `/grok:review` | Read-only Grok review of working tree or branch diff |
-| `/grok:status` | List running / recent jobs for this repo |
+| `/grok:status` | List running / recent jobs for this repository |
 | `/grok:result` | Show final stored output for a job |
 | `/grok:cancel` | Cancel a background job |
 
@@ -19,23 +19,15 @@ After install you should also see the `grok:grok-rescue` subagent in `/agents`. 
 
 ## Requirements
 
-- **Node.js 18.18+**
-- **Grok Build CLI** (`grok`) installed and on your `PATH`
+- **Node.js 18.18 or later**
+- **[Grok Build CLI](https://grok.com)** (`grok`) installed and available on your `PATH`
 - **Grok authentication** (`grok login`)
 
-On this machine the CLI usually lives at `~/.grok/bin/grok`.
+Typical CLI location after install: `~/.grok/bin/grok` (ensure that directory is on your `PATH`).
 
 ## Install
 
-From Claude Code, add this marketplace (local path or GitHub once published):
-
-From a local checkout:
-
-```text
-/plugin marketplace add ~/stdevMac/grok-in-claude
-```
-
-Or from GitHub:
+Add the marketplace in Claude Code:
 
 ```text
 /plugin marketplace add stdevMac/grok-in-claude
@@ -47,7 +39,7 @@ Install the plugin:
 /plugin install grok@grok-in-claude
 ```
 
-Reload:
+Reload plugins:
 
 ```text
 /reload-plugins
@@ -59,10 +51,23 @@ Then run:
 /grok:setup
 ```
 
-If Grok is installed but not logged in:
+If Grok is installed but not logged in yet:
 
 ```text
 !grok login
+```
+
+After install, you should see:
+
+- the slash commands listed above
+- the `grok:grok-rescue` subagent in `/agents`
+
+A simple first run:
+
+```text
+/grok:rescue --background summarize this repository in five bullets
+/grok:status
+/grok:result
 ```
 
 ## Usage
@@ -88,13 +93,15 @@ Ask Grok to redesign the database connection to be more resilient.
 Notes:
 
 - Default mode is **write-capable** (`grok --yolo`)
-- Pass `--read-only` (via the companion / subagent) for diagnosis without edits
+- Use read-only mode only when you want diagnosis or research without edits
 - `--model fast` maps to `grok-composer-2.5-fast`
-- Follow-up rescue requests can continue the latest Grok task session in the repo
+- Follow-up rescue requests can continue the latest Grok task session for the repository
+- `--background` / `--wait` control whether Claude runs the handoff in the background
+- `--resume` / `--fresh` control whether Grok continues the previous task thread
 
 ### `/grok:review`
 
-Read-only review of local git state.
+Read-only review of local git state. Does not modify files.
 
 ```text
 /grok:review
@@ -138,18 +145,18 @@ Read-only review of local git state.
 
 ```text
 Claude Code
-  └─ Agent(grok:grok-rescue)   # thin Bash forwarder
-       └─ node plugins/grok/scripts/grok-companion.mjs task ...
-            └─ grok -p ... --output-format json [--yolo | --tools read-only]
+  └─ Agent(grok:grok-rescue)          # thin Bash forwarder
+       └─ node .../grok-companion.mjs task ...
+            └─ grok -p ... --output-format json [--yolo | read-only tools]
 ```
 
-Job metadata is stored under:
+The plugin uses your machine's Grok CLI and authentication. Job metadata is stored under:
 
 ```text
 ~/.grok/claude-plugin/state/<repo-slug-hash>/
 ```
 
-(or `$CLAUDE_PLUGIN_DATA/state/...` when Claude provides plugin data dirs).
+(or `$CLAUDE_PLUGIN_DATA/state/...` when Claude Code provides a plugin data directory).
 
 Each completed task stores a Grok `sessionId` so you can resume in the Grok TUI:
 
@@ -159,11 +166,11 @@ grok --resume <session-id>
 
 ## Companion CLI
 
-You can call the companion directly for debugging:
+Useful when developing or debugging the plugin itself:
 
 ```bash
 node plugins/grok/scripts/grok-companion.mjs setup
-node plugins/grok/scripts/grok-companion.mjs task --write "summarize this repo in 3 bullets"
+node plugins/grok/scripts/grok-companion.mjs task "summarize this repo in 3 bullets"
 node plugins/grok/scripts/grok-companion.mjs review --scope working-tree
 node plugins/grok/scripts/grok-companion.mjs status
 node plugins/grok/scripts/grok-companion.mjs result
@@ -172,14 +179,28 @@ node plugins/grok/scripts/grok-companion.mjs cancel
 
 ## Configuration
 
-The plugin uses your local Grok install and auth. Model defaults come from Grok (`~/.grok/config.toml` and project rules such as `AGENTS.md` / `CLAUDE.md`).
+Model defaults and behavior come from your Grok install (`~/.grok/config.toml`) and project rules such as `AGENTS.md` / `CLAUDE.md`.
 
 Optional environment overrides:
 
 | Variable | Meaning |
 | --- | --- |
-| `GROK_BINARY` | Absolute path to the `grok` binary |
+| `GROK_BINARY` | Absolute path to the `grok` binary if it is not on `PATH` |
 | `CLAUDE_PLUGIN_DATA` | Provided by Claude Code for plugin-local state |
+
+## FAQ
+
+### Do I need a separate Grok account?
+
+No. The plugin uses the same Grok CLI login already on your machine. Run `/grok:setup` to verify, or `!grok login` if needed.
+
+### Does this run Grok in the cloud through Claude?
+
+No. Claude Code starts your local `grok` process. Work runs in the same repository checkout and environment as your other local tools.
+
+### Will it pick up my existing Grok config?
+
+Yes — user and project Grok configuration apply the same way they do when you run `grok` directly.
 
 ## Layout
 
