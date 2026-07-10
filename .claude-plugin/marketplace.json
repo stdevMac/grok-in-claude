@@ -1,0 +1,21 @@
+{
+  "name": "grok-in-claude",
+  "owner": {
+    "name": "xAI community"
+  },
+  "metadata": {
+    "description": "Grok plugins for Claude Code — delegate tasks and reviews to the local Grok CLI.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "grok",
+      "description": "Use Grok from Claude Code to review code or delegate tasks.",
+      "version": "0.1.0",
+      "author": {
+        "name": "xAI community"
+      },
+      "source": "./plugins/grok"
+    }
+  ]
+}
