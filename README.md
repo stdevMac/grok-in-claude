@@ -2,7 +2,7 @@
 
 Use [Grok](https://grok.com) from inside Claude Code for code reviews or to delegate tasks to the Grok CLI.
 
-This plugin follows the same idea as [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc): Claude stays the orchestrator, and a thin companion script hands real work to another coding agent on your machine.
+Claude stays the orchestrator. A thin companion script hands real work to Grok on your machine via the local CLI.
 
 ## What you get
 
