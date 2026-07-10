@@ -4,3 +4,7 @@ node_modules/
 .grok-companion/
 .grok-media/
 tmp/
+
+# Local media / film production (not shipped in git)
+videos/
+brag-output*/
