@@ -5,10 +5,10 @@ import { spawn } from "node:child_process";
 
 import { binaryAvailable, runCommand } from "./process.mjs";
 
-// Keep this list conservative. Broader allowlists (web tools) and
-// `--disallowed-tools Agent` currently trip a Grok CLI agent-build bug
-// around run_terminal_cmd background params (observed on grok 0.2.93).
-const READ_ONLY_TOOLS = "read_file,grep,list_dir";
+// Keep allowlists conservative. Some broader allowlists / Agent denylists
+// trip a Grok CLI agent-build bug around run_terminal_cmd (0.2.93).
+export const READ_ONLY_TOOLS = "read_file,grep,list_dir";
+export const MEDIA_TOOLS = "image_gen,image_edit,image_to_video,reference_to_video,list_dir,read_file";
 
 export function resolveGrokBinary() {
   const envPath = process.env.GROK_BINARY;
@@ -56,7 +56,6 @@ export function getGrokAuthStatus() {
     return { authenticated: false, detail: "Grok CLI not found" };
   }
 
-  // `grok models` requires auth and is non-interactive.
   const result = runCommand(binary, ["models"], { maxBuffer: 2 * 1024 * 1024 });
   const stdout = String(result.stdout ?? "");
   const stderr = String(result.stderr ?? "");
@@ -77,7 +76,6 @@ export function getGrokAuthStatus() {
     };
   }
 
-  // Some versions print models without an explicit "logged in" line.
   if (result.status === 0 && /grok-/i.test(combined)) {
     return { authenticated: true, detail: "Authenticated (models list succeeded)" };
   }
@@ -99,8 +97,12 @@ export function buildGrokArgs(options = {}) {
     throw new Error("A prompt or prompt file is required");
   }
 
-  args.push("--output-format", options.outputFormat ?? "json");
+  const outputFormat = options.outputFormat ?? (options.jsonSchema ? "json" : "json");
+  args.push("--output-format", outputFormat);
 
+  if (options.jsonSchema) {
+    args.push("--json-schema", options.jsonSchema);
+  }
   if (options.model) {
     args.push("-m", options.model);
   }
@@ -118,25 +120,46 @@ export function buildGrokArgs(options = {}) {
   if (options.maxTurns) {
     args.push("--max-turns", String(options.maxTurns));
   }
+  if (options.bestOfN && Number(options.bestOfN) > 1) {
+    args.push("--best-of-n", String(options.bestOfN));
+  }
+  if (options.check) {
+    args.push("--check");
+  }
   if (options.worktree) {
-    args.push("--worktree");
     if (typeof options.worktree === "string" && options.worktree !== "true") {
-      // --worktree takes optional name; keep as bare flag for boolean true
+      args.push("--worktree", options.worktree);
+    } else {
+      args.push("--worktree");
     }
   }
-  if (options.write) {
+  if (options.worktreeRef) {
+    args.push("--worktree-ref", options.worktreeRef);
+  }
+
+  if (options.tools) {
+    args.push("--tools", options.tools);
+    if (options.yolo !== false && options.write !== false) {
+      // Media and constrained modes still need auto-approve when tools mutate.
+      if (options.yolo || options.write) {
+        args.push("--yolo");
+      }
+    }
+  } else if (options.write) {
     args.push("--yolo");
   } else {
-    args.push("--tools", options.tools ?? READ_ONLY_TOOLS);
+    args.push("--tools", options.readOnlyTools ?? READ_ONLY_TOOLS);
   }
+
   if (options.rules) {
     args.push("--rules", options.rules);
-  } else if (!options.write) {
+  } else if (!options.write && !options.tools) {
     args.push(
       "--rules",
       "Read-only mode: do not modify files, create files, or run mutating shell commands. Review and report only."
     );
   }
+
   if (options.verbatim) {
     args.push("--verbatim");
   }
@@ -150,8 +173,10 @@ export function parseGrokJsonOutput(stdout) {
     return { ok: false, error: "Grok produced empty output", raw: "" };
   }
 
-  // Prefer the last JSON object in case of incidental log noise.
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   const candidates = [...lines].reverse();
   candidates.push(text);
 
@@ -208,7 +233,6 @@ export function runGrok(options = {}) {
     env: {
       ...process.env,
       ...(options.env ?? {}),
-      // Keep headless stderr quiet unless caller opts into logs.
       RUST_LOG: options.rustLog ?? process.env.RUST_LOG ?? "off"
     }
   });
@@ -231,7 +255,7 @@ export function runGrok(options = {}) {
 
 /**
  * Spawn Grok as a detached background process.
- * The child writes final JSON to resultFile and exits.
+ * Uses streaming-json when progressFile is set so status can show live activity.
  */
 export function spawnGrokBackground(options = {}) {
   const availability = getGrokAvailability();
@@ -239,9 +263,14 @@ export function spawnGrokBackground(options = {}) {
     throw new Error(availability.reason);
   }
 
-  const args = buildGrokArgs(options);
+  const useStreaming = Boolean(options.progressFile);
+  const args = buildGrokArgs({
+    ...options,
+    outputFormat: useStreaming ? "streaming-json" : options.outputFormat ?? "json"
+  });
   const resultFile = options.resultFile;
   const logFile = options.logFile;
+  const progressFile = options.progressFile || "";
   if (!resultFile) {
     throw new Error("resultFile is required for background runs");
   }
@@ -253,7 +282,9 @@ const binary = ${JSON.stringify(availability.binary)};
 const args = ${JSON.stringify(args)};
 const resultFile = ${JSON.stringify(resultFile)};
 const logFile = ${JSON.stringify(logFile || "")};
+const progressFile = ${JSON.stringify(progressFile)};
 const cwd = ${JSON.stringify(options.cwd || process.cwd())};
+const streaming = ${JSON.stringify(useStreaming)};
 
 function append(line) {
   if (!logFile) return;
@@ -262,7 +293,25 @@ function append(line) {
   } catch {}
 }
 
+function writeProgress(patch) {
+  if (!progressFile) return;
+  try {
+    let current = {};
+    if (fs.existsSync(progressFile)) {
+      current = JSON.parse(fs.readFileSync(progressFile, "utf8"));
+    }
+    const next = {
+      ...current,
+      ...patch,
+      updatedAt: new Date().toISOString()
+    };
+    fs.writeFileSync(progressFile, JSON.stringify(next, null, 2) + "\\n");
+  } catch {}
+}
+
 append("Starting Grok: " + binary + " " + args.join(" "));
+writeProgress({ phase: "starting", message: "Launching Grok", lines: 0 });
+
 const child = spawn(binary, args, {
   cwd,
   env: { ...process.env, RUST_LOG: process.env.RUST_LOG || "off" },
@@ -271,26 +320,95 @@ const child = spawn(binary, args, {
 
 let stdout = "";
 let stderr = "";
+let textAcc = "";
+let sessionId = null;
+let lineCount = 0;
+let lastMessage = "running";
+
+function handleStreamLine(line) {
+  lineCount += 1;
+  const trimmed = line.trim();
+  if (!trimmed) return;
+  try {
+    const evt = JSON.parse(trimmed);
+    if (evt.type === "text" && evt.data) {
+      textAcc += evt.data;
+      lastMessage = String(evt.data).replace(/\\s+/g, " ").slice(0, 120);
+    } else if (evt.type === "thought" && evt.data) {
+      lastMessage = "thinking: " + String(evt.data).replace(/\\s+/g, " ").slice(0, 100);
+    } else if (evt.type === "end") {
+      sessionId = evt.sessionId || sessionId;
+      lastMessage = "finishing";
+    } else if (evt.type === "error") {
+      lastMessage = evt.message || "error";
+    }
+    if (evt.sessionId) sessionId = evt.sessionId;
+  } catch {
+    lastMessage = trimmed.slice(0, 120);
+  }
+  if (lineCount % 3 === 0 || /end|error/i.test(trimmed)) {
+    writeProgress({
+      phase: "running",
+      message: lastMessage,
+      lines: lineCount,
+      sessionId
+    });
+  }
+}
+
+let stdoutBuf = "";
 child.stdout.on("data", (chunk) => {
   const text = chunk.toString();
   stdout += text;
   append(text.trimEnd());
+  if (streaming) {
+    stdoutBuf += text;
+    let idx;
+    while ((idx = stdoutBuf.indexOf("\\n")) !== -1) {
+      const line = stdoutBuf.slice(0, idx);
+      stdoutBuf = stdoutBuf.slice(idx + 1);
+      handleStreamLine(line);
+    }
+  }
 });
 child.stderr.on("data", (chunk) => {
   const text = chunk.toString();
   stderr += text;
   append("[stderr] " + text.trimEnd());
+  writeProgress({ phase: "running", message: text.trim().slice(0, 120), lines: lineCount });
 });
 child.on("close", (code, signal) => {
+  if (streaming && stdoutBuf.trim()) {
+    handleStreamLine(stdoutBuf);
+  }
+
+  let finalStdout = stdout;
+  if (streaming) {
+    // Reconstruct a json-format-like payload for the companion parser.
+    finalStdout = JSON.stringify({
+      text: textAcc || stdout,
+      stopReason: code === 0 ? "EndTurn" : "Error",
+      sessionId,
+      requestId: null
+    });
+  }
+
   const payload = {
     exitCode: code,
     signal,
-    stdout,
+    stdout: finalStdout,
     stderr,
-    finishedAt: new Date().toISOString()
+    finishedAt: new Date().toISOString(),
+    sessionId
   };
   try {
     fs.writeFileSync(resultFile, JSON.stringify(payload, null, 2) + "\\n");
+    writeProgress({
+      phase: code === 0 ? "completed" : "failed",
+      message: code === 0 ? "completed" : "failed with code " + code,
+      lines: lineCount,
+      sessionId
+    });
     append("Finished with code " + code);
   } catch (error) {
     append("Failed to write result: " + error.message);

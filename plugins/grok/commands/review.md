@@ -1,49 +1,33 @@
 ---
-description: Run a read-only Grok code review against local git state
-argument-hint: "[--wait|--background] [--base <ref>] [--scope auto|working-tree|branch] [optional focus]"
+description: Run a structured read-only Grok code review (working tree, branch, or PR)
+argument-hint: "[--wait|--background] [--base <ref>] [--scope auto|working-tree|branch] [--pr <n>] [focus]"
 disable-model-invocation: true
-allowed-tools: Read, Glob, Grep, Bash(node:*), Bash(git:*), AskUserQuestion
+allowed-tools: Read, Glob, Grep, Bash(node:*), Bash(git:*), Bash(gh:*), AskUserQuestion
 ---
 
-Run a Grok review through the companion runtime.
+Run a structured Grok review through the companion runtime.
 
 Raw slash-command arguments:
 `$ARGUMENTS`
 
 Core constraint:
-- This command is review-only.
-- Do not fix issues, apply patches, or suggest that you are about to make changes.
-- Your only job is to run the review and return Grok's output verbatim to the user.
+- Review-only. Do not fix issues or apply patches.
+- Return Grok's output verbatim.
 
-Execution mode rules:
-- If the raw arguments include `--wait`, do not ask. Run the review in the foreground.
-- If the raw arguments include `--background`, do not ask. Run the review in a Claude background task.
-- Otherwise, estimate the review size before asking:
-  - For working-tree review, start with `git status --short --untracked-files=all`.
-  - For working-tree review, also inspect both `git diff --shortstat --cached` and `git diff --shortstat`.
-  - For base-branch review, use `git diff --shortstat <base>...HEAD`.
-  - Recommend waiting only when the review is clearly tiny, roughly 1-2 files total.
-  - In every other case, including unclear size, recommend background.
-- Then use `AskUserQuestion` exactly once with two options, putting the recommended option first and suffixing its label with `(Recommended)`:
+Execution mode:
+- `--wait` → foreground
+- `--background` → background Bash
+- Otherwise estimate size (`git status` / `git diff --shortstat` / `gh pr diff`) and ask once with `AskUserQuestion`:
   - `Wait for results`
   - `Run in background`
+  Recommend background unless clearly tiny (1-2 files).
 
-Argument handling:
-- Preserve the user's arguments exactly.
-- Do not strip `--wait` or `--background` yourself.
-- The companion script accepts `--background`; Claude Code's `Bash(..., run_in_background: true)` can also detach the run.
-
-Foreground flow:
-- Run:
+Foreground:
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" review "$ARGUMENTS"
 ```
-- Return the command stdout verbatim, exactly as-is.
-- Do not paraphrase, summarize, or add commentary before or after it.
-- Do not fix any issues mentioned in the review output.
 
-Background flow:
-- Launch the review with `Bash` in the background:
+Background:
 ```typescript
 Bash({
   command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" review --background "$ARGUMENTS"`,
@@ -51,5 +35,8 @@ Bash({
   run_in_background: true
 })
 ```
-- Do not call `BashOutput` or wait for completion in this turn.
-- After launching the command, tell the user: "Grok review started in the background. Check `/grok:status` for progress."
+Then tell the user to check `/grok:status`.
+
+Notes:
+- `--pr <n>` uses GitHub CLI (`gh`) for PR title/body/diff.
+- Output is structured (verdict, findings, next steps) when parsing succeeds.

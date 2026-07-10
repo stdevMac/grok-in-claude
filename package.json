@@ -1,8 +1,8 @@
 {
   "name": "grok-in-claude",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Claude Code marketplace plugin for delegating work to the Grok CLI",
+  "description": "Claude Code marketplace plugin for delegating work and media generation to the Grok CLI",
   "type": "module",
   "engines": {
     "node": ">=18.18"

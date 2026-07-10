@@ -6,7 +6,7 @@ import path from "node:path";
 import { isProcessRunning, readPidFile } from "./process.mjs";
 import { resolveWorkspaceRoot } from "./workspace.mjs";
 
-const STATE_VERSION = 1;
+const STATE_VERSION = 2;
 const PLUGIN_DATA_ENV = "CLAUDE_PLUGIN_DATA";
 const FALLBACK_STATE_ROOT = path.join(os.homedir(), ".grok", "claude-plugin", "state");
 const MAX_JOBS = 50;
@@ -19,6 +19,9 @@ function defaultState() {
   return {
     version: STATE_VERSION,
     lastTaskSessionId: null,
+    config: {
+      stopReviewGate: false
+    },
     jobs: []
   };
 }
@@ -60,6 +63,10 @@ export function resolveJobPidFile(cwd, jobId) {
   return path.join(resolveJobsDir(cwd), `${jobId}.pid`);
 }
 
+export function resolveJobProgressFile(cwd, jobId) {
+  return path.join(resolveJobsDir(cwd), `${jobId}.progress.json`);
+}
+
 export function ensureStateDir(cwd) {
   fs.mkdirSync(resolveJobsDir(cwd), { recursive: true });
 }
@@ -74,6 +81,10 @@ export function loadState(cwd) {
     return {
       ...defaultState(),
       ...parsed,
+      config: {
+        ...defaultState().config,
+        ...(parsed.config ?? {})
+      },
       jobs: Array.isArray(parsed.jobs) ? parsed.jobs : []
     };
   } catch {
@@ -92,6 +103,10 @@ export function saveState(cwd, state) {
   const next = {
     version: STATE_VERSION,
     lastTaskSessionId: state.lastTaskSessionId ?? null,
+    config: {
+      ...defaultState().config,
+      ...(state.config ?? {})
+    },
     jobs: pruneJobs(state.jobs ?? [])
   };
   fs.writeFileSync(resolveStateFile(cwd), `${JSON.stringify(next, null, 2)}\n`, "utf8");
@@ -102,6 +117,19 @@ export function updateState(cwd, mutate) {
   const state = loadState(cwd);
   mutate(state);
   return saveState(cwd, state);
+}
+
+export function getConfig(cwd) {
+  return loadState(cwd).config;
+}
+
+export function setConfig(cwd, patch) {
+  return updateState(cwd, (state) => {
+    state.config = {
+      ...state.config,
+      ...patch
+    };
+  }).config;
 }
 
 export function generateJobId(prefix = "job") {
@@ -162,6 +190,33 @@ export function getLastTaskSessionId(cwd) {
   return loadState(cwd).lastTaskSessionId ?? null;
 }
 
+export function readJobProgress(cwd, jobId) {
+  const filePath = resolveJobProgressFile(cwd, jobId);
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export function tailLog(filePath, maxLines = 12) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    return [];
+  }
+  try {
+    const text = fs.readFileSync(filePath, "utf8");
+    return text
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .slice(-maxLines);
+  } catch {
+    return [];
+  }
+}
+
 export function refreshJobLiveness(cwd, job) {
   if (!job || job.status !== "running") {
     return job;
@@ -169,10 +224,10 @@ export function refreshJobLiveness(cwd, job) {
 
   const pid = job.pid ?? readPidFile(resolveJobPidFile(cwd, job.id));
   if (pid && isProcessRunning(pid)) {
-    return { ...job, pid, alive: true };
+    const progress = readJobProgress(cwd, job.id);
+    return { ...job, pid, alive: true, progress };
   }
 
-  // Background worker may have finished and written the job file already.
   const stored = readJobFile(cwd, job.id);
   if (stored && stored.status && stored.status !== "running") {
     upsertJob(cwd, {
@@ -227,5 +282,5 @@ export function resolveJob(cwd, jobId) {
   if (jobs[0]) {
     return jobs[0];
   }
-  throw new Error("No Grok jobs found for this repository. Run /grok:rescue or /grok:review first.");
+  throw new Error("No Grok jobs found for this repository. Run a /grok command first.");
 }

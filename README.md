@@ -1,6 +1,6 @@
 # Grok plugin for Claude Code
 
-Use [Grok](https://grok.com) from inside Claude Code for code reviews or to delegate tasks to the Grok CLI.
+Use [Grok](https://grok.com) from inside Claude Code for code reviews, delegated coding tasks, and image/video generation.
 
 Claude stays the orchestrator. A thin companion script hands real work to Grok on your machine via the local CLI.
 
@@ -8,83 +8,76 @@ Claude stays the orchestrator. A thin companion script hands real work to Grok o
 
 | Command | Purpose |
 | --- | --- |
-| `/grok:setup` | Check that the Grok CLI is installed and authenticated |
-| `/grok:rescue` | Delegate investigation / fixes to Grok (write-capable) |
-| `/grok:review` | Read-only Grok review of working tree or branch diff |
-| `/grok:status` | List running / recent jobs for this repository |
-| `/grok:result` | Show final stored output for a job |
+| `/grok:setup` | Check CLI + auth; toggle optional stop review gate |
+| `/grok:rescue` | Delegate investigation / fixes (write-capable) |
+| `/grok:review` | Structured read-only review (tree / branch / PR) |
+| `/grok:adversarial-review` | Challenge design, tradeoffs, and assumptions |
+| `/grok:image` | Generate or edit images → `.grok-media/image/` |
+| `/grok:video` | Generate short videos → `.grok-media/video/` |
+| `/grok:transfer` | Locate Claude transcript for handoff into Grok |
+| `/grok:status` | Jobs + live progress / log tail |
+| `/grok:result` | Final stored output for a job |
 | `/grok:cancel` | Cancel a background job |
 
-After install you should also see the `grok:grok-rescue` subagent in `/agents`. Claude can proactively route substantial debugging or implementation work there.
+Also available:
+
+- **`grok:grok-rescue` subagent** in `/agents` for proactive delegation
+- Skills: brand/media recipes, routing guidance, runtime contracts
 
 ## Requirements
 
 - **Node.js 18.18 or later**
-- **[Grok Build CLI](https://grok.com)** (`grok`) installed and available on your `PATH`
+- **[Grok Build CLI](https://grok.com)** (`grok`) on your `PATH`
 - **Grok authentication** (`grok login`)
+- **GitHub CLI (`gh`)** only if you use `/grok:review --pr`
 
-Typical CLI location after install: `~/.grok/bin/grok` (ensure that directory is on your `PATH`).
+Typical CLI location: `~/.grok/bin/grok` (ensure it is on `PATH`).
 
 ## Install
 
-Add the marketplace in Claude Code:
-
 ```text
 /plugin marketplace add stdevMac/grok-in-claude
-```
-
-Install the plugin:
-
-```text
 /plugin install grok@grok-in-claude
-```
-
-Reload plugins:
-
-```text
 /reload-plugins
-```
-
-Then run:
-
-```text
 /grok:setup
 ```
 
-If Grok is installed but not logged in yet:
+If Grok is installed but not logged in:
 
 ```text
 !grok login
 ```
 
-After install, you should see:
+After install you should see the slash commands above and `grok:grok-rescue` under `/agents`.
 
-- the slash commands listed above
-- the `grok:grok-rescue` subagent in `/agents`
-
-A simple first run:
+## Quick start
 
 ```text
 /grok:rescue --background summarize this repository in five bullets
 /grok:status
 /grok:result
+
+/grok:review --base main
+/grok:image --aspect 16:9 Dark minimal banner for a developer tool
+/grok:video --background --image ./.grok-media/image/<file>.png gentle camera push-in
 ```
 
 ## Usage
 
 ### `/grok:rescue`
 
-Hands a task to Grok through the `grok:grok-rescue` subagent.
-
 ```text
 /grok:rescue investigate why the tests started failing
 /grok:rescue fix the failing test with the smallest safe patch
 /grok:rescue --resume apply the top fix from the last run
 /grok:rescue --model fast investigate the flaky integration test
+/grok:rescue --model deep --effort high redesign the retry layer
+/grok:rescue --worktree --check implement the fix and verify
+/grok:rescue --best-of-n 3 propose three approaches and pick the best
 /grok:rescue --background investigate the regression
 ```
 
-You can also ask in natural language:
+Natural language also works:
 
 ```text
 Ask Grok to redesign the database connection to be more resilient.
@@ -93,114 +86,135 @@ Ask Grok to redesign the database connection to be more resilient.
 Notes:
 
 - Default mode is **write-capable** (`grok --yolo`)
-- Use read-only mode only when you want diagnosis or research without edits
-- `--model fast` maps to `grok-composer-2.5-fast`
-- Follow-up rescue requests can continue the latest Grok task session for the repository
-- `--background` / `--wait` control whether Claude runs the handoff in the background
-- `--resume` / `--fresh` control whether Grok continues the previous task thread
+- `--worktree` isolates edits in a Grok git worktree
+- `--check` appends Grok’s self-verification loop
+- `--best-of-n <n>` runs parallel attempts (headless) and keeps the best
+- `--model fast` → `grok-composer-2.5-fast`; `deep` → `grok-4.5` + high effort
+- Follow-ups can continue the latest task session (`--resume`)
 
-### `/grok:review`
-
-Read-only review of local git state. Does not modify files.
+### `/grok:review` and `/grok:adversarial-review`
 
 ```text
 /grok:review
 /grok:review --base main
+/grok:review --pr 123
 /grok:review --background focus on auth and race conditions
+/grok:adversarial-review challenge whether this caching design is correct
 ```
+
+Reviews are read-only and return structured findings when possible:
+
+- verdict
+- summary
+- findings (severity, file, lines, recommendation)
+- next steps
+
+### `/grok:image` / `/grok:video`
+
+```text
+/grok:image --aspect 16:9 Hero banner for a dark SaaS landing page
+/grok:image --edit ./assets/logo.png monochrome, tighter padding
+/grok:video --background --image ./hero.png --duration 6 soft parallax
+/grok:video --ref a.png --ref b.png --aspect 16:9 launch cutdown
+```
+
+Artifacts default to `.grok-media/` (gitignored). See the **grok-brand-media** skill for recipes.
 
 ### Job control
 
 ```text
 /grok:status
 /grok:status task-abc123
-/grok:result
 /grok:result task-abc123
 /grok:cancel task-abc123
 ```
 
-## Typical flows
+Background jobs stream progress into status (phase + recent log lines).
 
-### Review before shipping
-
-```text
-/grok:review --base main
-```
-
-### Hand a problem to Grok
+### `/grok:transfer`
 
 ```text
-/grok:rescue investigate why the build is failing in CI
+/grok:transfer
+/grok:transfer --source ~/.claude/projects/.../<session>.jsonl
 ```
 
-### Long-running work
+Locates the latest Claude Code transcript for this repo and prints import/resume guidance when supported by your Grok CLI.
+
+### Optional stop review gate
 
 ```text
-/grok:rescue --background dig into the flaky test and propose a fix
-/grok:status
-/grok:result
+/grok:setup --enable-review-gate
+/grok:setup --disable-review-gate
 ```
+
+When enabled, a Stop hook runs a Grok review of local changes and can block stop on critical/high findings.
+
+**Warning:** This can create long Claude↔Grok loops and consume usage quickly. Keep it off unless you are actively monitoring the session.
 
 ## How it works
 
 ```text
 Claude Code
-  └─ Agent(grok:grok-rescue)          # thin Bash forwarder
-       └─ node .../grok-companion.mjs task ...
-            └─ grok -p ... --output-format json [--yolo | read-only tools]
+  └─ slash command or Agent(grok:grok-rescue)
+       └─ node .../grok-companion.mjs <command>
+            └─ grok -p ... --output-format json|streaming-json
 ```
 
-The plugin uses your machine's Grok CLI and authentication. Job metadata is stored under:
+Job metadata:
 
 ```text
 ~/.grok/claude-plugin/state/<repo-slug-hash>/
 ```
 
-(or `$CLAUDE_PLUGIN_DATA/state/...` when Claude Code provides a plugin data directory).
+(or `$CLAUDE_PLUGIN_DATA/state/...` when provided by Claude Code).
 
-Each completed task stores a Grok `sessionId` so you can resume in the Grok TUI:
+Resume a completed Grok session in the TUI:
 
 ```bash
 grok --resume <session-id>
 ```
 
-## Companion CLI
+## Security notes
 
-Useful when developing or debugging the plugin itself:
+- Rescue defaults to **full tool auto-approval** (`--yolo`). Use `--worktree` for risky changes and `--read-only` for pure diagnosis.
+- Reviews are tool-restricted to read-only file inspection.
+- Media commands may write files under `.grok-media/` (or `--out`).
+- Stop-gate is **opt-in** and may block Claude from stopping a turn.
+
+## Companion CLI (development)
 
 ```bash
 node plugins/grok/scripts/grok-companion.mjs setup
-node plugins/grok/scripts/grok-companion.mjs task "summarize this repo in 3 bullets"
-node plugins/grok/scripts/grok-companion.mjs review --scope working-tree
+node plugins/grok/scripts/grok-companion.mjs task --worktree --check "fix the flaky test"
+node plugins/grok/scripts/grok-companion.mjs review --pr 12
+node plugins/grok/scripts/grok-companion.mjs adversarial-review --base main
+node plugins/grok/scripts/grok-companion.mjs image --aspect 1:1 "app icon concept"
+node plugins/grok/scripts/grok-companion.mjs video --image ./frame.png "slow pan"
 node plugins/grok/scripts/grok-companion.mjs status
-node plugins/grok/scripts/grok-companion.mjs result
-node plugins/grok/scripts/grok-companion.mjs cancel
 ```
 
 ## Configuration
 
-Model defaults and behavior come from your Grok install (`~/.grok/config.toml`) and project rules such as `AGENTS.md` / `CLAUDE.md`.
-
-Optional environment overrides:
+Uses your local Grok install, auth, `~/.grok/config.toml`, and project rules (`AGENTS.md` / `CLAUDE.md`).
 
 | Variable | Meaning |
 | --- | --- |
-| `GROK_BINARY` | Absolute path to the `grok` binary if it is not on `PATH` |
-| `CLAUDE_PLUGIN_DATA` | Provided by Claude Code for plugin-local state |
+| `GROK_BINARY` | Absolute path to `grok` if not on `PATH` |
+| `CLAUDE_PLUGIN_DATA` | Claude-provided plugin state directory |
 
 ## FAQ
 
-### Do I need a separate Grok account?
+### Does this call Grok through Claude’s cloud?
 
-No. The plugin uses the same Grok CLI login already on your machine. Run `/grok:setup` to verify, or `!grok login` if needed.
+No. Claude starts your local `grok` process in the same checkout and environment.
 
-### Does this run Grok in the cloud through Claude?
+### Do I need a separate account?
 
-No. Claude Code starts your local `grok` process. Work runs in the same repository checkout and environment as your other local tools.
+No — same Grok CLI login (`/grok:setup` / `grok login`).
 
-### Will it pick up my existing Grok config?
+### Will my Grok config apply?
 
-Yes — user and project Grok configuration apply the same way they do when you run `grok` directly.
+Yes.
 
 ## Layout
 
@@ -208,19 +222,13 @@ Yes — user and project Grok configuration apply the same way they do when you 
 grok-in-claude/
 ├── .claude-plugin/marketplace.json
 └── plugins/grok/
-    ├── .claude-plugin/plugin.json
-    ├── agents/grok-rescue.md
+    ├── agents/
     ├── commands/
+    ├── hooks/
+    ├── schemas/
     ├── skills/
     └── scripts/grok-companion.mjs
 ```
-
-## Roadmap
-
-- Stop-hook review gate (Claude stop → Grok review)
-- Adversarial / steerable review command
-- Session transfer from Claude transcript → Grok
-- Structured review JSON schema + richer rendering
 
 ## License
 

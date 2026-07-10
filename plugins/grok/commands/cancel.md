@@ -1,5 +1,5 @@
 ---
-description: Cancel an active background Grok job in this repository
+description: Cancel an active background Grok job
 argument-hint: "[job-id]"
 disable-model-invocation: true
 allowed-tools: Bash(node:*)

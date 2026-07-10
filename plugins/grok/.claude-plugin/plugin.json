@@ -1,7 +1,7 @@
 {
   "name": "grok",
-  "version": "0.1.0",
-  "description": "Use Grok from Claude Code to review code or delegate tasks.",
+  "version": "0.2.0",
+  "description": "Use Grok from Claude Code to review code, delegate tasks, and generate images/videos.",
   "author": {
     "name": "stdevMac",
     "url": "https://github.com/stdevMac"
@@ -9,5 +9,13 @@
   "homepage": "https://github.com/stdevMac/grok-in-claude",
   "repository": "https://github.com/stdevMac/grok-in-claude",
   "license": "Apache-2.0",
-  "keywords": ["grok", "xai", "claude-code", "subagent", "code-review"]
+  "keywords": [
+    "grok",
+    "xai",
+    "claude-code",
+    "subagent",
+    "code-review",
+    "image-generation",
+    "video-generation"
+  ]
 }

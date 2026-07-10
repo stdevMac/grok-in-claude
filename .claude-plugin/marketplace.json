@@ -5,14 +5,14 @@
     "url": "https://github.com/stdevMac"
   },
   "metadata": {
-    "description": "Grok plugins for Claude Code — delegate tasks and reviews to the Grok CLI.",
-    "version": "0.1.0"
+    "description": "Grok plugins for Claude Code — delegate tasks, reviews, and media generation to the Grok CLI.",
+    "version": "0.2.0"
   },
   "plugins": [
     {
       "name": "grok",
-      "description": "Use Grok from Claude Code to review code or delegate tasks.",
-      "version": "0.1.0",
+      "description": "Use Grok from Claude Code to review code, delegate tasks, and generate images/videos.",
+      "version": "0.2.0",
       "author": {
         "name": "stdevMac"
       },

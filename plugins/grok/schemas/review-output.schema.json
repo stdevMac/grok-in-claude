@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GrokReviewOutput",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "summary", "findings", "next_steps"],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "description": "Short overall verdict, e.g. approve, approve_with_nits, request_changes, block"
+    },
+    "summary": {
+      "type": "string",
+      "description": "2-4 sentence summary of the review"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "title", "body", "file"],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low"]
+          },
+          "title": { "type": "string" },
+          "body": { "type": "string" },
+          "file": { "type": "string" },
+          "line_start": { "type": ["integer", "null"] },
+          "line_end": { "type": ["integer", "null"] },
+          "recommendation": { "type": "string" }
+        }
+      }
+    },
+    "next_steps": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

@@ -81,7 +81,62 @@ export function getBranchDiff(cwd, baseRef, maxBytes = 200_000) {
   return text;
 }
 
+export function getPrReviewTarget(cwd, prNumber, maxBytes = 200_000) {
+  const pr = String(prNumber).replace(/^#/, "");
+  const view = runCommand("gh", ["pr", "view", pr, "--json", "title,body,baseRefName,headRefName,url,number"], {
+    cwd,
+    maxBuffer: 2 * 1024 * 1024
+  });
+  if (view.error && view.error.code === "ENOENT") {
+    throw new Error("`gh` is not installed. Install GitHub CLI to use --pr.");
+  }
+  if (view.status !== 0) {
+    throw new Error(formatCommandFailure(view, "gh", ["pr", "view", pr]));
+  }
+
+  let meta;
+  try {
+    meta = JSON.parse(view.stdout);
+  } catch {
+    throw new Error(`Unable to parse gh pr view output for PR #${pr}`);
+  }
+
+  const diff = runCommand("gh", ["pr", "diff", pr], { cwd, maxBuffer: maxBytes + 1 });
+  if (diff.status !== 0) {
+    throw new Error(formatCommandFailure(diff, "gh", ["pr", "diff", pr]));
+  }
+
+  let diffText = diff.stdout.trim();
+  if (diffText.length > maxBytes) {
+    diffText = diffText.slice(0, maxBytes) + "\n\n[diff truncated]";
+  }
+
+  const status = [
+    `PR #${meta.number}: ${meta.title || ""}`,
+    meta.url || "",
+    `${meta.baseRefName || "?"} ← ${meta.headRefName || "?"}`,
+    meta.body ? meta.body.slice(0, 2000) : ""
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    kind: "pr",
+    label: `pull request #${meta.number}`,
+    pr: meta.number,
+    branch: meta.headRefName || null,
+    baseRef: meta.baseRefName || null,
+    status,
+    diff: diffText,
+    empty: !diffText
+  };
+}
+
 export function resolveReviewTarget(cwd, options = {}) {
+  if (options.pr) {
+    return getPrReviewTarget(cwd, options.pr);
+  }
+
   const scope = options.scope ?? "auto";
   const base = options.base ?? null;
   const status = getWorkingTreeStatus(cwd);
@@ -108,4 +163,41 @@ export function resolveReviewTarget(cwd, options = {}) {
     diff,
     empty: !diff && !shortstat
   };
+}
+
+/** Recent uncommitted + branch tip for stop-gate reviews. */
+export function collectStopGateContext(cwd, maxBytes = 120_000) {
+  const status = getWorkingTreeStatus(cwd);
+  if (status) {
+    return {
+      kind: "working-tree",
+      label: "working tree changes from the latest Claude turn",
+      status,
+      diff: getWorkingTreeDiff(cwd, maxBytes),
+      empty: false
+    };
+  }
+
+  try {
+    const baseRef = detectDefaultBranch(cwd);
+    const diff = getBranchDiff(cwd, baseRef, maxBytes);
+    const shortstat = gitChecked(cwd, ["diff", "--shortstat", `${baseRef}...HEAD`]).stdout.trim();
+    return {
+      kind: "branch",
+      label: `branch vs ${baseRef} (no working-tree changes)`,
+      baseRef,
+      branch: getCurrentBranch(cwd),
+      status: shortstat,
+      diff,
+      empty: !diff && !shortstat
+    };
+  } catch {
+    return {
+      kind: "working-tree",
+      label: "repository",
+      status: "(clean)",
+      diff: "",
+      empty: true
+    };
+  }
 }
