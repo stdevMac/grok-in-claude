@@ -6,7 +6,10 @@ Claude stays the orchestrator. A thin companion script hands real work to Grok o
 
 ## Launch film
 
-[Watch the launch video](https://github.com/stdevMac/grok-in-claude/releases/download/launch-film/grok-in-claude-launch.mp4) — 28s trailer for this plugin.
+
+https://github.com/user-attachments/assets/4f5740a3-af09-4038-9a8e-a0889114a60c
+
+28s trailer for this plugin.
 
 **Made with Grok.** Dogfood of the same workflow this plugin unlocks from Claude Code: hand hard creative work to Grok, ship the artifact.
 
