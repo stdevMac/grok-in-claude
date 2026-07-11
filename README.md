@@ -4,11 +4,15 @@ Use [Grok](https://grok.com) from inside Claude Code for code reviews, delegated
 
 Claude stays the orchestrator. A thin companion script hands real work to Grok on your machine via the local CLI.
 
+## Launch film
+
 https://github.com/user-attachments/assets/4f5740a3-af09-4038-9a8e-a0889114a60c
 
-**28s launch trailer · Made with Grok** · [Download 1080p](https://github.com/stdevMac/grok-in-claude/releases/download/launch-film/grok-in-claude-launch.mp4)
+28s trailer for this plugin.
 
-Same idea as the plugin: Claude directs, Grok does the hard creative work, you ship the artifact.
+**Made with Grok.** Dogfood of the same workflow this plugin unlocks from Claude Code: hand hard creative work to Grok, ship the artifact.
+
+[Download 1080p](https://github.com/stdevMac/grok-in-claude/releases/download/launch-film/grok-in-claude-launch.mp4)
 
 ## What you get
 
