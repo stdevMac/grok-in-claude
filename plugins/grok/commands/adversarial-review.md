@@ -23,3 +23,5 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" adversarial-review --bac
 ```
 
 Use this when the user wants design challenges, alternative approaches, failure modes, or pressure-testing assumptions — not a nitpick-only review.
+
+May run in parallel with rescue/media jobs. Prefer `--background` when other Grok work is already in flight.

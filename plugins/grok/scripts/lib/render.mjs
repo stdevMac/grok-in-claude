@@ -42,7 +42,8 @@ export function renderSetupReport(payload) {
   if (payload.ready) {
     lines.push(
       "",
-      "Grok is ready for `/grok:rescue`, `/grok:review`, `/grok:image`, and `/grok:video`."
+      "Grok is ready for `/grok:rescue`, `/grok:review`, `/grok:image`, and `/grok:video`.",
+      "Agents under `/agents`: `grok:grok-rescue`, `grok:grok-review`, `grok:grok-media` (can run in parallel)."
     );
   } else {
     lines.push("", "## Next steps");
@@ -136,7 +137,10 @@ export function renderTaskResult(payload) {
     lines.push(`- **Resume in Grok TUI**: \`grok --resume ${payload.grokSessionId}\``);
   }
   if (payload.kind === "image" || payload.kind === "video") {
-    lines.push("- **Mode**: media generation (default tools + denylist; no --tools allowlist)");
+    lines.push("- **Mode**: media generation (default tools + denylist; companion copies into `.grok-media/`)");
+    if (payload.mediaDir) {
+      lines.push(`- **Output dir**: \`${payload.mediaDir}\``);
+    }
   } else if (payload.write) {
     lines.push("- **Mode**: write-capable (`--yolo`)");
   } else {
@@ -175,13 +179,22 @@ export function renderBackgroundStarted(payload) {
     `- **Job**: \`${payload.jobId}\``,
     `- **PID**: ${payload.pid ?? "n/a"}`,
     `- **Title**: ${payload.title || "(untitled)"}`,
+    `- **Concurrent jobs**: allowed (multiple Grok processes may run in parallel)`
+  ];
+  if (payload.otherRunning?.length) {
+    lines.push(`- **Also running**: ${payload.otherRunning.length}`);
+    for (const other of payload.otherRunning) {
+      lines.push(`  - \`${other.id}\` (${other.kind || "job"}): ${short(other.title || "", 50)}`);
+    }
+  }
+  lines.push(
     "",
     "Check progress with:",
     "",
     `- \`/grok:status ${payload.jobId}\``,
     `- \`/grok:result ${payload.jobId}\``,
     `- \`/grok:cancel ${payload.jobId}\``
-  ];
+  );
   return `${lines.join("\n")}\n`;
 }
 
@@ -235,10 +248,17 @@ export function renderStatusReport(jobs, options = {}) {
     return `${lines.join("\n")}\n`;
   }
 
-  const lines = [
-    "| Job | Kind | Status | Progress | Summary |",
-    "| --- | --- | --- | --- | --- |"
-  ];
+  const runningCount = jobs.filter((job) => job.status === "running").length;
+  const lines = [];
+  if (runningCount > 1 || options.concurrent) {
+    lines.push(
+      `# Grok jobs (${runningCount} running in parallel)`,
+      "",
+      "Multiple agents/jobs can run at once. Pass a job id to `/grok:result` and `/grok:cancel` when more than one is running.",
+      ""
+    );
+  }
+  lines.push("| Job | Kind | Status | Progress | Summary |", "| --- | --- | --- | --- | --- |");
   for (const job of jobs) {
     const progress =
       job.status === "running"

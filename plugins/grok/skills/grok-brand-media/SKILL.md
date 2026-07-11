@@ -12,7 +12,8 @@ Use with `/grok:image` and `/grok:video` (or companion `image` / `video` command
 
 - Images → `.grok-media/image/`
 - Videos → `.grok-media/video/`
-- Always ask Grok to print absolute paths when done
+- Grok’s tools usually write under `~/.grok/sessions/…/images|videos/`. The companion **copies** finished assets into `.grok-media/` so the project path contract holds without needing shell/`write_file` (those stay denylisted).
+- Video resolution is limited by Grok’s model tier (often **480p**); that is not a plugin bug.
 
 ## Image recipes
 
@@ -54,3 +55,4 @@ Use with `/grok:image` and `/grok:video` (or companion `image` / `video` command
 - Name the aspect ratio and destination (banner, icon, social)
 - Say what to avoid (busy UI, tiny illegible text, watermark clutter)
 - Prefer background for video: `/grok:video --background ...`
+- After background jobs finish, `/grok:result` lists project-local paths under `.grok-media/`

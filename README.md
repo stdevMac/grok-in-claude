@@ -4,14 +4,11 @@ Use [Grok](https://grok.com) from inside Claude Code for code reviews, delegated
 
 Claude stays the orchestrator. A thin companion script hands real work to Grok on your machine via the local CLI.
 
-## Launch film
-
-
 https://github.com/user-attachments/assets/4f5740a3-af09-4038-9a8e-a0889114a60c
 
-28s trailer for this plugin.
+**28s launch trailer · Made with Grok** · [Download 1080p](https://github.com/stdevMac/grok-in-claude/releases/download/launch-film/grok-in-claude-launch.mp4)
 
-**Made with Grok.** Dogfood of the same workflow this plugin unlocks from Claude Code: hand hard creative work to Grok, ship the artifact.
+Same idea as the plugin: Claude directs, Grok does the hard creative work, you ship the artifact.
 
 ## What you get
 
@@ -28,10 +25,15 @@ https://github.com/user-attachments/assets/4f5740a3-af09-4038-9a8e-a0889114a60c
 | `/grok:result` | Final stored output for a job |
 | `/grok:cancel` | Cancel a background job |
 
-Also available:
+Also available (under `/agents`; all may run **in parallel**):
 
-- **`grok:grok-rescue` subagent** in `/agents` for proactive delegation
-- Skills: brand/media recipes, routing guidance, runtime contracts
+| Agent | Role |
+| --- | --- |
+| `grok:grok-rescue` | Investigation / fixes (write-capable) |
+| `grok:grok-review` | Structured or adversarial review (read-only) |
+| `grok:grok-media` | Image / video generation |
+
+Skills: brand/media recipes, routing guidance, runtime contracts.
 
 ## Requirements
 
@@ -57,7 +59,7 @@ If Grok is installed but not logged in:
 !grok login
 ```
 
-After install you should see the slash commands above and `grok:grok-rescue` under `/agents`.
+After install you should see the slash commands above and the three `grok:*` agents under `/agents`.
 
 ## Quick start
 
@@ -86,10 +88,20 @@ After install you should see the slash commands above and `grok:grok-rescue` und
 /grok:rescue --background investigate the regression
 ```
 
+**Parallel agents** (independent workstreams in one Claude turn):
+
+```text
+# e.g. Claude spawns two background rescues + a review together
+/grok:rescue --background investigate the flaky payment tests
+/grok:rescue --background --worktree redesign the retry layer
+/grok:review --background focus on race conditions
+```
+
 Natural language also works:
 
 ```text
 Ask Grok to redesign the database connection to be more resilient.
+Run a Grok review of the PR and generate a launch image at the same time.
 ```
 
 Notes:
@@ -97,9 +109,10 @@ Notes:
 - Default mode is **write-capable** (`grok --yolo`)
 - `--worktree` isolates edits in a Grok git worktree
 - `--check` appends Grok’s self-verification loop
-- `--best-of-n <n>` runs parallel attempts (headless) and keeps the best
+- `--best-of-n <n>` runs parallel attempts of the *same* task (headless) and keeps the best
+- Multiple **different** jobs can run at once (multiple agents / background companions); there is no single-agent lock
 - `--model fast` → `grok-composer-2.5-fast`; `deep` → `grok-4.5` + high effort
-- Follow-ups can continue the latest task session (`--resume`)
+- Follow-ups can continue the latest task session (`--resume`) or a specific one (`--resume-session <id>`)
 
 ### `/grok:review` and `/grok:adversarial-review`
 
@@ -127,9 +140,11 @@ Reviews are read-only and return structured findings when possible:
 /grok:video --ref a.png --ref b.png --aspect 16:9 launch cutdown
 ```
 
-Artifacts default to `.grok-media/` (gitignored). See the **grok-brand-media** skill for recipes.
+Artifacts land in **`.grok-media/image|video/`** (gitignored). Grok may first write under `~/.grok/sessions/…`; the companion copies into the project dir after the run. See the **grok-brand-media** skill for recipes.
 
-**CLI note (Grok 0.2.93):** media runs use the default toolset with a denylist (`--disallowed-tools`), not a `--tools` allowlist. Allowlists currently break session create on this CLI version.
+**Video resolution:** capped by the Grok model tier (commonly **480p**), not the plugin.
+
+**CLI note (Grok 0.2.93+):** media runs use the default toolset with a denylist (`--disallowed-tools`), not a `--tools` allowlist. Allowlists currently break session create on some CLI versions.
 
 ### Job control
 
@@ -140,7 +155,7 @@ Artifacts default to `.grok-media/` (gitignored). See the **grok-brand-media** s
 /grok:cancel task-abc123
 ```
 
-Background jobs stream progress into status (phase + recent log lines).
+Background jobs stream progress into status (phase + recent log lines). When **multiple** jobs are running, pass an explicit job id to `result` / `cancel` (status lists all of them).
 
 ### `/grok:transfer`
 

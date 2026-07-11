@@ -1,5 +1,5 @@
 ---
-description: Generate or edit images with Grok (saves under .grok-media/image)
+description: Generate or edit images with Grok (companion copies into .grok-media/image)
 argument-hint: "[--background] [--edit <path>] [--aspect <ratio>] [--model <id>] [prompt]"
 allowed-tools: Bash(node:*), Read, Glob
 ---

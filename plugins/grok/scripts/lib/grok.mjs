@@ -188,6 +188,96 @@ export function buildGrokArgs(options = {}) {
   return args;
 }
 
+/**
+ * Turn raw CLI / Rust dumps into a short human-readable failure message.
+ */
+export function humanizeGrokFailure(sources = {}) {
+  const parts = [sources.parsedError, sources.stderr, sources.stdout, sources.message]
+    .filter((v) => v != null && String(v).trim())
+    .map((v) => String(v).trim());
+  const blob = parts.join("\n");
+  if (!blob) {
+    if (sources.exitCode != null && sources.exitCode !== 0) {
+      return `Grok exited with code ${sources.exitCode}.`;
+    }
+    return "Grok failed with no error details.";
+  }
+
+  const compact = blob.replace(/\s+/g, " ").trim();
+
+  // Tool allowlist / session-create constraint (known on Grok 0.2.93)
+  if (
+    /RequirementError/i.test(blob) &&
+    (/run_terminal_cmd/i.test(blob) || /background/i.test(blob) || /--tools/i.test(blob))
+  ) {
+    return (
+      "Grok CLI rejected the tool configuration while creating a session. " +
+      "This usually means a `--tools` allowlist is incompatible with your Grok CLI version. " +
+      "This plugin uses `--disallowed-tools` denylists for media and read-only review instead. " +
+      "Update the plugin or Grok CLI (`grok version`), then retry."
+    );
+  }
+
+  if (/RequirementError/i.test(blob)) {
+    const brief =
+      blob.match(/RequirementError[:\s{]*([^}\n]{10,200})/i)?.[1]?.trim() ||
+      compact.slice(0, 180);
+    return (
+      `Grok CLI requirement error: ${brief}. ` +
+      "Check `grok version`, auth (`grok login`), and that your plan supports this feature."
+    );
+  }
+
+  if (/not logged in|unauthori[sz]ed|authentication required|auth.*fail/i.test(blob)) {
+    return "Grok is not authenticated. Run `grok login` (or `!grok login` inside Claude Code).";
+  }
+
+  if (/command not found|No such file or directory.*grok|Grok CLI not found/i.test(blob)) {
+    return "Grok CLI not found. Install Grok Build and ensure `grok` is on your PATH.";
+  }
+
+  if (/rate.?limit|too many requests|429/i.test(blob)) {
+    return "Grok rate-limited the request. Wait a moment and retry.";
+  }
+
+  if (/model .+ not found|unknown model|invalid model/i.test(blob)) {
+    return "Grok rejected the model id. Use a valid model (e.g. `grok-4.5` or `--model fast`).";
+  }
+
+  // Prefer structured JSON error message if present in the blob
+  try {
+    const jsonMatch = blob.match(/\{[\s\S]*"type"\s*:\s*"error"[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed.message) {
+        return humanizeGrokFailure({ message: parsed.message, exitCode: sources.exitCode });
+      }
+    }
+  } catch {
+    // fall through
+  }
+
+  // Drop obvious Rust debug noise / huge dumps
+  const firstUseful =
+    blob
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .find(
+        (l) =>
+          l &&
+          !/^\[stderr\]/i.test(l) &&
+          !/^thread '/i.test(l) &&
+          !/^note:/i.test(l) &&
+          !/^at /i.test(l) &&
+          l.length < 400
+      ) || compact.slice(0, 280);
+
+  if (sources.exitCode != null && sources.exitCode !== 0) {
+    return `Grok failed (exit ${sources.exitCode}): ${firstUseful}`;
+  }
+  return firstUseful;
+}
+
 export function parseGrokJsonOutput(stdout) {
   const text = String(stdout ?? "").trim();
   if (!text) {
@@ -206,9 +296,10 @@ export function parseGrokJsonOutput(stdout) {
       const parsed = JSON.parse(candidate);
       if (parsed && typeof parsed === "object") {
         if (parsed.type === "error") {
+          const rawMessage = parsed.message || "Grok returned an error object";
           return {
             ok: false,
-            error: parsed.message || "Grok returned an error object",
+            error: humanizeGrokFailure({ parsedError: rawMessage, stdout: text }),
             raw: text,
             parsed
           };
@@ -227,6 +318,16 @@ export function parseGrokJsonOutput(stdout) {
     } catch {
       // try next candidate
     }
+  }
+
+  // Non-JSON failure dumps (e.g. Rust RequirementError on stdout/stderr merge)
+  if (/RequirementError|Error:|panic/i.test(text) && !/^\s*\{/.test(text)) {
+    return {
+      ok: false,
+      error: humanizeGrokFailure({ stdout: text }),
+      raw: text,
+      parsed: null
+    };
   }
 
   return {
@@ -261,6 +362,16 @@ export function runGrok(options = {}) {
   const stdout = String(result.stdout ?? "");
   const stderr = String(result.stderr ?? "");
   const parsed = parseGrokJsonOutput(stdout);
+  const ok = result.status === 0 && parsed.ok;
+
+  if (!ok) {
+    parsed.error = humanizeGrokFailure({
+      parsedError: parsed.error,
+      stderr,
+      stdout,
+      exitCode: result.status
+    });
+  }
 
   return {
     binary: availability.binary,
@@ -270,7 +381,7 @@ export function runGrok(options = {}) {
     stdout,
     stderr,
     parsed,
-    ok: result.status === 0 && parsed.ok
+    ok
   };
 }
 

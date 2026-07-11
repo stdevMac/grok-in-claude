@@ -9,6 +9,7 @@ allowed-tools: Bash(node:*)
 
 If no job ID:
 - Keep a compact table (job, kind, status, progress, summary).
+- When more than one job is running, note that concurrent agents are supported and results need job ids.
 
 If a job ID is present:
 - Show full details including progress phase/message and recent log tail.

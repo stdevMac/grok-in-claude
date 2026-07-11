@@ -6,3 +6,5 @@ allowed-tools: Bash(node:*)
 ---
 
 !`node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" cancel "$ARGUMENTS"`
+
+When multiple jobs are running, a job id is required. Use `/grok:status` to list them.

@@ -11,24 +11,28 @@ import { collectStopGateContext, resolveReviewTarget } from "./lib/git.mjs";
 import {
   getGrokAuthStatus,
   getGrokAvailability,
+  humanizeGrokFailure,
   parseGrokJsonOutput,
   runGrok,
   spawnGrokBackground
 } from "./lib/grok.mjs";
 import {
+  AmbiguousJobError,
   generateJobId,
   getConfig,
   getLastTaskSessionId,
   listJobs,
+  listRunningJobs,
+  listTaskSessions,
   nowIso,
   readJobFile,
   readJobProgress,
+  recordTaskSession,
   resolveJob,
   resolveJobLogFile,
   resolveJobPidFile,
   resolveJobProgressFile,
   setConfig,
-  setLastTaskSessionId,
   tailLog,
   upsertJob,
   writeJobFile
@@ -36,8 +40,8 @@ import {
 import {
   buildImagePrompt,
   buildVideoPrompt,
+  collectMediaArtifacts,
   extractArtifactPaths,
-  listNewMediaFiles,
   resolveMediaOutputDir
 } from "./lib/media.mjs";
 import { readPidFile, terminateProcessTree, writePidFile } from "./lib/process.mjs";
@@ -76,8 +80,9 @@ function printUsage() {
     [
       "Usage:",
       "  setup [--enable-review-gate|--disable-review-gate] [--json]",
-      "  task [--background] [--read-only] [--resume-last|--fresh] [--model <id|fast|deep>]",
-      "       [--effort <level>] [--worktree [name]] [--check] [--best-of-n <n>] [prompt]",
+      "  task [--background] [--read-only] [--resume-last|--resume-session <id>|--fresh]",
+      "       [--model <id|fast|deep>] [--effort <level>] [--worktree [name]] [--check]",
+      "       [--best-of-n <n>] [prompt]",
       "  task-resume-candidate [--json]",
       "  review [--background] [--adversarial] [--base <ref>] [--scope auto|working-tree|branch]",
       "         [--pr <number>] [--model <id>] [--effort <level>] [focus]",
@@ -162,6 +167,21 @@ function enrichJob(cwd, job) {
   return { ...job, progress, logTail };
 }
 
+function resolveMediaArtifactsForJob(job, text, sessionId) {
+  const cwd = job.workspaceRoot || process.cwd();
+  const kind = job.kind === "video" ? "video" : "image";
+  const outputDir = job.mediaDir || resolveMediaOutputDir(cwd, kind);
+  const startedMs = Date.parse(job.createdAt || "") || Date.now() - 120_000;
+  return collectMediaArtifacts({
+    cwd,
+    kind,
+    outputDir,
+    sessionId,
+    sinceMs: startedMs,
+    text
+  });
+}
+
 function finalizeJob(cwd, job, grokResult, extras = {}) {
   const parsed = grokResult.parsed;
   const ok = grokResult.ok;
@@ -170,10 +190,22 @@ function finalizeJob(cwd, job, grokResult, extras = {}) {
   const status = ok ? "completed" : "failed";
   const finishedAt = nowIso();
   const review = extras.parseReview ? tryParseStructuredReview(text) : null;
-  const artifacts = extras.artifacts || extractArtifactPaths(text, job.workspaceRoot || cwd);
+  let artifacts = extras.artifacts || extractArtifactPaths(text, job.workspaceRoot || cwd);
+  if (job.kind === "image" || job.kind === "video") {
+    artifacts = resolveMediaArtifactsForJob(job, text, sessionId);
+  }
   const summary = review
     ? `${review.verdict}: ${titleFromPrompt(review.summary, status)}`
     : titleFromPrompt(text, status);
+
+  const error = ok
+    ? null
+    : humanizeGrokFailure({
+        parsedError: parsed?.error,
+        stderr: grokResult.stderr,
+        stdout: grokResult.stdout,
+        exitCode: grokResult.status
+      });
 
   const fullJob = {
     ...job,
@@ -186,7 +218,7 @@ function finalizeJob(cwd, job, grokResult, extras = {}) {
     artifacts,
     grokSessionId: sessionId,
     exitCode: grokResult.status,
-    error: ok ? null : parsed?.error || grokResult.stderr || `Grok exited with code ${grokResult.status}`,
+    error,
     stderr: grokResult.stderr || null
   };
 
@@ -202,7 +234,12 @@ function finalizeJob(cwd, job, grokResult, extras = {}) {
   writeJobFile(cwd, fullJob);
 
   if (sessionId && (job.kind === "task" || job.kind === "rescue")) {
-    setLastTaskSessionId(cwd, sessionId);
+    recordTaskSession(cwd, {
+      sessionId,
+      jobId: job.id,
+      title: job.title || fullJob.summary,
+      kind: job.kind
+    });
   }
 
   return fullJob;
@@ -234,15 +271,19 @@ function maybeFinalizeBackgroundJob(cwd, job) {
   const review = job.kind === "review" || job.kind === "adversarial-review" || job.kind === "stop-gate"
     ? tryParseStructuredReview(text)
     : null;
-  const mediaRoot = job.mediaDir || path.join(job.workspaceRoot || cwd, ".grok-media");
-  const startedMs = Date.parse(job.createdAt || finishedAt) || Date.now();
   const artifacts =
     job.kind === "image" || job.kind === "video"
-      ? [
-          ...extractArtifactPaths(text, job.workspaceRoot || cwd),
-          ...listNewMediaFiles(mediaRoot, startedMs)
-        ]
+      ? resolveMediaArtifactsForJob(job, text, sessionId)
       : extractArtifactPaths(text, job.workspaceRoot || cwd);
+
+  const error = ok
+    ? null
+    : humanizeGrokFailure({
+        parsedError: parsed.error,
+        stderr: payload.stderr,
+        stdout: payload.stdout,
+        exitCode: payload.exitCode
+      });
 
   const fullJob = {
     ...job,
@@ -255,7 +296,7 @@ function maybeFinalizeBackgroundJob(cwd, job) {
     artifacts: [...new Set(artifacts)],
     grokSessionId: sessionId,
     exitCode: payload.exitCode,
-    error: ok ? null : parsed.error || payload.stderr || `Grok exited with code ${payload.exitCode}`,
+    error,
     stderr: payload.stderr || null
   };
 
@@ -271,7 +312,12 @@ function maybeFinalizeBackgroundJob(cwd, job) {
   writeJobFile(cwd, fullJob);
 
   if (sessionId && (job.kind === "task" || job.kind === "rescue")) {
-    setLastTaskSessionId(cwd, sessionId);
+    recordTaskSession(cwd, {
+      sessionId,
+      jobId: job.id,
+      title: job.title || fullJob.summary,
+      kind: job.kind
+    });
   }
 
   return enrichJob(cwd, fullJob);
@@ -338,12 +384,21 @@ function runOrBackground(cwd, job, grokOptions, { background, json, renderPayloa
     };
     upsertJob(cwd, { id: job.id, pid: spawned.pid, status: "running" });
     writeJobFile(cwd, runningJob);
+    const otherRunning = listRunningJobs(cwd)
+      .filter((item) => item.id !== job.id)
+      .map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        title: item.title || item.summary || null
+      }));
     const payload = {
       jobId: job.id,
       kind: job.kind,
       pid: spawned.pid,
       title: job.title,
-      status: "running"
+      status: "running",
+      concurrent: true,
+      otherRunning
     };
     outputResult(json ? payload : renderBackgroundStarted(payload), Boolean(json));
     return null;
@@ -421,11 +476,22 @@ async function commandSetup(argv) {
 async function commandTaskResumeCandidate(argv) {
   parseArgs(argv, { booleanOptions: ["json"] });
   const cwd = resolveWorkspaceRoot(process.cwd());
+  const sessions = listTaskSessions(cwd);
   const sessionId = getLastTaskSessionId(cwd);
+  const runningJobs = listRunningJobs(cwd).map((job) => ({
+    id: job.id,
+    kind: job.kind,
+    title: job.title || job.summary || null,
+    status: job.status,
+    grokSessionId: job.grokSessionId || null
+  }));
   outputResult(
     {
-      available: Boolean(sessionId),
+      available: Boolean(sessionId) || sessions.length > 0,
       sessionId,
+      sessions,
+      runningJobs,
+      canRunConcurrent: true,
       workspaceRoot: cwd
     },
     true
@@ -446,10 +512,20 @@ async function commandTask(argv) {
       "json",
       "verbatim"
     ],
-    valueOptions: ["model", "effort", "max-turns", "cwd", "best-of-n", "worktree-ref", "worktree-name"],
+    valueOptions: [
+      "model",
+      "effort",
+      "max-turns",
+      "cwd",
+      "best-of-n",
+      "worktree-ref",
+      "worktree-name",
+      "resume-session"
+    ],
     aliasMap: {
       "read-only": "read-only",
       "resume-last": "resume-last",
+      "resume-session": "resume-session",
       "max-turns": "max-turns",
       "best-of-n": "best-of-n",
       "worktree-ref": "worktree-ref",
@@ -475,7 +551,14 @@ async function commandTask(argv) {
   const check = Boolean(options.check);
 
   let resume = null;
-  if (options["resume-last"] && !options.fresh) {
+  if (options.fresh) {
+    resume = null;
+  } else if (options["resume-session"]) {
+    resume = String(options["resume-session"]).trim();
+    if (!resume) {
+      throw new Error("Empty --resume-session value.");
+    }
+  } else if (options["resume-last"]) {
     resume = getLastTaskSessionId(cwd);
     if (!resume) {
       throw new Error("No previous Grok task session found for this repository. Run without --resume-last.");
@@ -668,10 +751,10 @@ async function commandMedia(argv, kind) {
     extras: { mediaDir: outputDir, media: true }
   });
 
-  const startedMs = Date.now();
   // Grok 0.2.93: never pass --tools allowlist here (session create fails).
   // Use default toolset + denylist; do not pass --yolo (classifier may deny it;
   // single-prompt auto-approve still applies when configured).
+  // Grok media tools write under ~/.grok/sessions/...; the companion copies into outputDir.
   const grokOptions = {
     promptFile: job.promptFile,
     cwd,
@@ -680,27 +763,29 @@ async function commandMedia(argv, kind) {
     yolo: false,
     model,
     effort,
-    rules: `Media-only mode. Prefer image_gen / image_edit / image_to_video / reference_to_video. Save all outputs under ${outputDir}. Do not edit application source code. Do not run shell commands. When finished, print absolute paths to every created file.`
+    rules: `Media-only mode. Prefer image_gen / image_edit / image_to_video / reference_to_video. Session media paths are fine; the companion copies them into ${outputDir}. Do not edit application source code. Do not run shell commands or try to move files. When finished, print absolute paths to every created file.`
   };
 
   const finished = runOrBackground(cwd, job, grokOptions, {
     background: Boolean(options.background),
     json: options.json,
     renderPayload: {
-      finalizeExtras: {
-        artifacts: listNewMediaFiles(outputDir, startedMs)
-      },
       build: (done) => {
-        const artifacts = [
-          ...(done.artifacts || []),
-          ...listNewMediaFiles(outputDir, startedMs)
-        ];
+        const artifacts =
+          done.artifacts?.length
+            ? done.artifacts
+            : resolveMediaArtifactsForJob(
+                { ...job, ...done, mediaDir: outputDir, kind },
+                done.resultText || "",
+                done.grokSessionId
+              );
         return {
           jobId: job.id,
           kind,
           status: done.status,
           model,
           write: false,
+          mediaDir: outputDir,
           grokSessionId: done.grokSessionId,
           text: done.resultText,
           error: done.error,
@@ -710,13 +795,13 @@ async function commandMedia(argv, kind) {
     }
   });
 
-  // If foreground completed, enrich job file with artifacts discovered on disk.
+  // Foreground: re-collect in case session files landed after parse.
   if (finished) {
-    const artifacts = [
-      ...(finished.artifacts || []),
-      ...listNewMediaFiles(outputDir, startedMs)
-    ];
-    finished.artifacts = [...new Set(artifacts)];
+    finished.artifacts = resolveMediaArtifactsForJob(
+      { ...finished, mediaDir: outputDir, kind },
+      finished.resultText || "",
+      finished.grokSessionId
+    );
     writeJobFile(cwd, finished);
   }
 }
@@ -833,8 +918,15 @@ async function commandStatus(argv) {
   }
 
   const config = getConfig(cwd);
-  const payload = { jobs, workspaceRoot: cwd, stopReviewGate: config.stopReviewGate };
-  outputResult(options.json ? payload : renderStatusReport(jobs), Boolean(options.json));
+  const runningJobs = jobs.filter((job) => job.status === "running");
+  const payload = {
+    jobs,
+    runningCount: runningJobs.length,
+    concurrent: runningJobs.length > 1,
+    workspaceRoot: cwd,
+    stopReviewGate: config.stopReviewGate
+  };
+  outputResult(options.json ? payload : renderStatusReport(jobs, { concurrent: payload.concurrent }), Boolean(options.json));
 }
 
 async function commandResult(argv) {

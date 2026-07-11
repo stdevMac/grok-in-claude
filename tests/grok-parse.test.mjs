@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildGrokArgs, parseGrokJsonOutput } from "../plugins/grok/scripts/lib/grok.mjs";
+import {
+  buildGrokArgs,
+  humanizeGrokFailure,
+  parseGrokJsonOutput
+} from "../plugins/grok/scripts/lib/grok.mjs";
 
 test("parseGrokJsonOutput reads success payload", () => {
   const parsed = parseGrokJsonOutput(
@@ -50,4 +54,29 @@ test("buildGrokArgs media mode avoids tools allowlist and yolo", () => {
   assert.ok(!args.includes("--yolo"));
   assert.ok(args.includes("--disallowed-tools"));
   assert.ok(args.some((a) => String(a).includes("run_terminal_cmd")));
+});
+
+test("humanizeGrokFailure maps RequirementError tool dumps", () => {
+  const msg = humanizeGrokFailure({
+    stderr:
+      'RequirementError { message: "run_terminal_cmd background param constraint with --tools allowlist" }',
+    exitCode: 1
+  });
+  assert.match(msg, /tool configuration/i);
+  assert.match(msg, /disallowed-tools/i);
+  assert.ok(!/RequirementError \{/.test(msg));
+});
+
+test("humanizeGrokFailure maps auth failures", () => {
+  const msg = humanizeGrokFailure({ stderr: "Error: not logged in" });
+  assert.match(msg, /not authenticated/i);
+  assert.match(msg, /grok login/i);
+});
+
+test("parseGrokJsonOutput humanizes bare RequirementError text", () => {
+  const parsed = parseGrokJsonOutput(
+    'Error: RequirementError { kind: "tools", detail: "run_terminal_cmd background" }'
+  );
+  assert.equal(parsed.ok, false);
+  assert.match(parsed.error, /tool configuration|requirement error/i);
 });

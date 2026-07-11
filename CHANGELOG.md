@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.2.3
+
+### Added
+- **Concurrent multi-agent support**: multiple Grok jobs may run in parallel (no single-agent lock). Background starts report other running jobs.
+- Multi-session task history (`taskSessions`) with `--resume-session <id>` in addition to `--resume-last`.
+- Specialized Claude Code agents: `grok:grok-review`, `grok:grok-media` (alongside `grok:grok-rescue`).
+- `/grok:rescue` fan-out guidance: spawn multiple Agents in one turn for independent workstreams.
+- Ambiguous job errors when `status`/`result`/`cancel` omit a job id while several jobs are running.
+
+### Improved
+- `task-resume-candidate` returns session list, running jobs, and `canRunConcurrent: true`.
+- Status table highlights parallel running jobs.
+- Routing + runtime skills document parallel agent usage.
+
+## 0.2.2
+
+### Fixed
+- Media output contract: companion **copies** Grok session artifacts (`~/.grok/sessions/…/images|videos`) into `.grok-media/image|video/` after image/video jobs finish (foreground and background). Prompts no longer require Grok to write into the project while shell/`write_file` are denylisted.
+- Failure UX: raw Rust `RequirementError` dumps and similar CLI noise are mapped to short human-readable messages (tool config, auth, rate limits, etc.).
+
+### Docs
+- Note Grok video resolution ceiling (often 480p) as a model-tier limit, not a plugin bug.
+
 ## 0.2.1
 
 ### Fixed

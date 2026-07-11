@@ -6,10 +6,11 @@ import path from "node:path";
 import { isProcessRunning, readPidFile } from "./process.mjs";
 import { resolveWorkspaceRoot } from "./workspace.mjs";
 
-const STATE_VERSION = 2;
+const STATE_VERSION = 3;
 const PLUGIN_DATA_ENV = "CLAUDE_PLUGIN_DATA";
 const FALLBACK_STATE_ROOT = path.join(os.homedir(), ".grok", "claude-plugin", "state");
 const MAX_JOBS = 50;
+const MAX_TASK_SESSIONS = 20;
 
 export function nowIso() {
   return new Date().toISOString();
@@ -19,6 +20,7 @@ function defaultState() {
   return {
     version: STATE_VERSION,
     lastTaskSessionId: null,
+    taskSessions: [],
     config: {
       stopReviewGate: false
     },
@@ -85,6 +87,7 @@ export function loadState(cwd) {
         ...defaultState().config,
         ...(parsed.config ?? {})
       },
+      taskSessions: Array.isArray(parsed.taskSessions) ? parsed.taskSessions : [],
       jobs: Array.isArray(parsed.jobs) ? parsed.jobs : []
     };
   } catch {
@@ -98,11 +101,19 @@ function pruneJobs(jobs) {
     .slice(0, MAX_JOBS);
 }
 
+function pruneTaskSessions(sessions) {
+  return [...(sessions ?? [])]
+    .filter((entry) => entry && entry.sessionId)
+    .sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")))
+    .slice(0, MAX_TASK_SESSIONS);
+}
+
 export function saveState(cwd, state) {
   ensureStateDir(cwd);
   const next = {
     version: STATE_VERSION,
     lastTaskSessionId: state.lastTaskSessionId ?? null,
+    taskSessions: pruneTaskSessions(state.taskSessions ?? []),
     config: {
       ...defaultState().config,
       ...(state.config ?? {})
@@ -180,14 +191,61 @@ export function readJobFile(cwd, jobId) {
   }
 }
 
-export function setLastTaskSessionId(cwd, sessionId) {
+/**
+ * Record a finished task/rescue session for multi-session resume.
+ * Keeps lastTaskSessionId as the latest (backward compatible).
+ */
+export function recordTaskSession(cwd, { sessionId, jobId = null, title = null, kind = "task" } = {}) {
+  if (!sessionId) {
+    return;
+  }
   updateState(cwd, (state) => {
-    state.lastTaskSessionId = sessionId ?? null;
+    state.lastTaskSessionId = sessionId;
+    const entry = {
+      sessionId,
+      jobId,
+      title,
+      kind,
+      updatedAt: nowIso()
+    };
+    const existing = Array.isArray(state.taskSessions) ? state.taskSessions : [];
+    state.taskSessions = [entry, ...existing.filter((s) => s.sessionId !== sessionId)];
   });
 }
 
+/** @deprecated Prefer recordTaskSession — kept for call sites that only have a session id. */
+export function setLastTaskSessionId(cwd, sessionId) {
+  recordTaskSession(cwd, { sessionId });
+}
+
 export function getLastTaskSessionId(cwd) {
-  return loadState(cwd).lastTaskSessionId ?? null;
+  const state = loadState(cwd);
+  if (state.lastTaskSessionId) {
+    return state.lastTaskSessionId;
+  }
+  const sessions = listTaskSessions(cwd);
+  return sessions[0]?.sessionId ?? null;
+}
+
+export function listTaskSessions(cwd) {
+  const state = loadState(cwd);
+  const sessions = pruneTaskSessions(state.taskSessions ?? []);
+  if (sessions.length) {
+    return sessions;
+  }
+  // Migrate v2 state that only had lastTaskSessionId
+  if (state.lastTaskSessionId) {
+    return [
+      {
+        sessionId: state.lastTaskSessionId,
+        jobId: null,
+        title: null,
+        kind: "task",
+        updatedAt: null
+      }
+    ];
+  }
+  return [];
 }
 
 export function readJobProgress(cwd, jobId) {
@@ -265,6 +323,23 @@ export function refreshJobLiveness(cwd, job) {
   return { ...job, alive: false };
 }
 
+export function listRunningJobs(cwd) {
+  return listJobs(cwd)
+    .map((job) => refreshJobLiveness(cwd, job))
+    .filter((job) => job.status === "running");
+}
+
+export class AmbiguousJobError extends Error {
+  constructor(running) {
+    const ids = running.map((job) => `\`${job.id}\``).join(", ");
+    super(
+      `Multiple Grok jobs are running (${running.length}). Pass a job id: ${ids}. Use \`/grok:status\` to list them.`
+    );
+    this.name = "AmbiguousJobError";
+    this.running = running;
+  }
+}
+
 export function resolveJob(cwd, jobId) {
   const jobs = listJobs(cwd).map((job) => refreshJobLiveness(cwd, job));
   if (jobId) {
@@ -275,9 +350,12 @@ export function resolveJob(cwd, jobId) {
     return refreshJobLiveness(cwd, match);
   }
 
-  const running = jobs.find((job) => job.status === "running");
-  if (running) {
-    return running;
+  const running = jobs.filter((job) => job.status === "running");
+  if (running.length === 1) {
+    return running[0];
+  }
+  if (running.length > 1) {
+    throw new AmbiguousJobError(running);
   }
   if (jobs[0]) {
     return jobs[0];

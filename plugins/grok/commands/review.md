@@ -1,11 +1,11 @@
 ---
-description: Run a structured read-only Grok code review (working tree, branch, or PR)
+description: Run a structured read-only Grok code review (working tree, branch, or PR); may run in parallel with other Grok agents
 argument-hint: "[--wait|--background] [--base <ref>] [--scope auto|working-tree|branch] [--pr <n>] [focus]"
 disable-model-invocation: true
-allowed-tools: Read, Glob, Grep, Bash(node:*), Bash(git:*), Bash(gh:*), AskUserQuestion
+allowed-tools: Read, Glob, Grep, Bash(node:*), Bash(git:*), Bash(gh:*), AskUserQuestion, Agent
 ---
 
-Run a structured Grok review through the companion runtime.
+Run a structured Grok review through the companion runtime (or the `grok:grok-review` subagent).
 
 Raw slash-command arguments:
 `$ARGUMENTS`
@@ -13,6 +13,10 @@ Raw slash-command arguments:
 Core constraint:
 - Review-only. Do not fix issues or apply patches.
 - Return Grok's output verbatim.
+
+Concurrency:
+- Reviews may run **in parallel** with rescue/media jobs. Prefer `--background` when other work is in flight.
+- You may also invoke `Agent(subagent_type: "grok:grok-review", run_in_background: true)` instead of Bash.
 
 Execution mode:
 - `--wait` → foreground
@@ -35,7 +39,7 @@ Bash({
   run_in_background: true
 })
 ```
-Then tell the user to check `/grok:status`.
+Then tell the user to check `/grok:status` (use the job id when multiple jobs are running).
 
 Notes:
 - `--pr <n>` uses GitHub CLI (`gh`) for PR title/body/diff.
