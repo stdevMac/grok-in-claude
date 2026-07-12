@@ -4,6 +4,8 @@ Use [Grok](https://grok.com) from inside Claude Code for code reviews, delegated
 
 Claude stays the orchestrator. A thin companion script hands real work to Grok on your machine via the local CLI.
 
+Using Codex instead? Use the sibling plugin: [grok-in-codex](https://github.com/stdevMac/grok-in-codex).
+
 ## Launch film
 
 https://github.com/user-attachments/assets/4f5740a3-af09-4038-9a8e-a0889114a60c
